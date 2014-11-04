@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+
+##Taken from https://github.com/heroku/heroku-buildpack-jvm-common/blob/82c7ef34b9236f82d9df301e3b536c247f8c7daf/bin/java
+
+LATEST_JDK_VERSION="1.7"
+DEFAULT_JDK_VERSION="1.6"
+
+JDK_URL_1_8=${JDK_URL_1_8:-"http://lang-jvm.s3.amazonaws.com/jdk/openjdk1.8.0_20.tar.gz"}
+JDK_URL_1_7=${JDK_URL_1_7:-"http://lang-jvm.s3.amazonaws.com/jdk/openjdk1.7.0_55.tar.gz"}
+JDK_URL_1_6=${JDK_URL_1_6:-"http://lang-jvm.s3.amazonaws.com/jdk/openjdk1.6.0_27.tar.gz"}
+JDK_URL_1_6_DARWIN="http://heroku-jvm-langpack-java.s3.amazonaws.com/openjdk6-u33-heroku-temaki-darwin.tar.gz"
+JDK_URL_1_7_DARWIN="http://heroku-jvm-langpack-java.s3.amazonaws.com/openjdk7-u4-heroku-temaki-darwin.tar.gz"
+
+install_java() {
+    baseDir=$1
+        if [ ! -d "${baseDir}" ]; then echo "Invalid directory to install java."; return 1 ; fi
+            javaVersion="$(get_java_version $2)"
+                jdkDir="${baseDir}"/.jdk
+                jdkTarball="${jdkDir}"/jdk.tar.gz
+                javaExe="${jdkDir}/$(_get_relative_jdk_bin)"/java
+                mkdir -p "${jdkDir}"
+                if [ ! -f "${jdkTarball}" ] && [ ! -f "${javaExe}" ] || is_java_version_change "${jdkDir}" "${javaVersion}"; then
+                    jdkUrl=$(_get_jdk_download_url "${javaVersion}")
+                        curl --silent --location ${jdkUrl} --output ${jdkTarball}
+    tar pxzf ${jdkTarball} -C "${jdkDir}"
+        rm ${jdkTarball}
+    echo "${javaVersion}" > "${jdkDir}"/version
+        if [ ! -f "${javaExe}" ]; then
+            echo "Unable to retrieve the JDK."
+                return 1
+                fi
+                fi
+                export JAVA_HOME="${jdkDir}/$(_get_relative_jdk_home)"
+                export PATH="${jdkDir}/$(_get_relative_jdk_bin):${PATH}"
+# patch JVM
+                PROFILE_PATH="$BUILD_DIR/.profile.d/jvmcommon.sh"
+                mkdir -p $(dirname $PROFILE_PATH)
+# Patch for CVE-2013-1537
+                echo 'export JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS -Djava.rmi.server.useCodebaseOnly=true"' >> $PROFILE_PATH
+}
+
+jdk_overlay() {
+    baseDir=$1
+        shopt -s dotglob
+        if [ -d ${baseDir}/.jdk ] && [ -d ${baseDir}/.jdk-overlay ]; then
+            cp -r ${baseDir}/.jdk-overlay/* ${baseDir}/.jdk/
+                                            fi
+                                            }
+
+                                            is_java_version_change() {
+                                            jdkDir=$1
+                                            javaVersion=${2:-"${DEFAULT_JDK_VERSION}"}
+                                            if [ ! -d "${jdkDir}" ]; then echo "Invalid JDK directory."; return 1; fi
+                                            test -f "${jdkDir}/version" && [ "$(cat ${jdkDir}/version)" != "${javaVersion}" ]
+                                            }
+
+                                            _get_jdk_download_url() {
+                                            jdkVersion=${1:-${DEFAULT_JDK_VERSION}}
+# hacky way of parsing the variable name.
+# bash 4 would solve this with associative arrays, but shunit
+# tests don't seem to respect the correct bash version.
+minorJdkVersion=\$JDK_URL_1_$(expr "${jdkVersion}" : '1.\([6-8]\)')
+osSuffix="$(_get_os_suffix)"
+jdkUrl=$(eval echo \$JDK_URL_1_${minorJdkVersion}${osSuffix})
+echo "${jdkUrl}"
+}
+
+_get_relative_jdk_bin() {
+echo "$(_get_relative_jdk_home)/bin"
+}
+
+_get_relative_jdk_home() {
+if [ "$(_get_os_suffix)" = "_DARWIN" ]; then
+echo "Home"
+else
+echo ""
+fi
+}
+
+_get_os_suffix() {
+osSuffix=""
+if [ "$(uname)" = "Darwin" ]; then osSuffix="_DARWIN"; fi
+echo "${osSuffix}"
+}
+
+is_supported_java_version() {
+javaVersion=$1
+if [ "$(expr "${javaVersion}" : '1.[6-8]')" != 0 ]; then
+echo "true"
+else
+echo "false"
+fi
+}
+
+get_java_version() {
+javaVersion=$1
+if [ "$(is_supported_java_version ${javaVersion})" = "true" ]; then
+echo "${javaVersion}"
+else
+echo "${DEFAULT_JDK_VERSION}"
+fi
+}
+
+detect_java_version() {
+baseDir=${1:-"No Dir"}
+if [ "${baseDir}" = "No Dir" ] || [ ! -d "${baseDir}" ] ; then
+echo "Invalid directory specified for pom file."
+return 1
+fi
+if [ -f ${baseDir}/system.properties ]; then
+javaVersion=$(get_app_system_value ${baseDir}/system.properties "java.runtime.version")
+if [ "$(is_supported_java_version ${javaVersion})" = "true" ]; then
+echo "${javaVersion}"
+else
+echo ""
+fi
+else
+    echo ""
+        fi
+            }
+
+get_jvm_utils_command() {
+    baseDir=${1:-"No Dir"}
+    if [ "${baseDir}" = "No Dir" ] || [ ! -d "${baseDir}" ] ; then
+        echo "Invalid directory specified for pom file."
+            return 1
+            fi
+
+            jvmUtilsDir="${baseDir}"/.jvm-utils
+            mkdir -p "${jvmUtilsDir}"
+
+            if [ ! -f "$jvmUtilsDir"/jvm-utils.jar ] ; then
+                jvmUtilsURL="https://s3.amazonaws.com/heroku-jvm-langpack-java/buildpack-jvm-utils-0.1.jar"
+                    curl --silent --location ${jvmUtilsURL} --output "${jvmUtilsDir}"/jvm-utils.jar
+                    fi
+
+                    echo "${jvmUtilsDir}"/jvm-utils.jar
+}
+
+is_flagged_for_download() {
+    randThreshold=${1:-"$(curl --silent http://heroku-jvm-langpack-java.s3.amazonaws.com/flags/download-jdk-6-rate)"}
+    rand=$(shuf -i 0-100 -n 1)
+        thresholdIsNumber=$(echo "$randThreshold" | grep -E ^[0-9]+$)
+        if [ ${#thresholdIsNumber} -gt 0 ] && [ $rand -lt $randThreshold ]; then
+            echo "true"
+        else
+            echo "false"
+                fi
+}
+
+get_app_system_value() {
+    local file=${1?"No file specified"}
+    local key=${2?"No key specified"}
+
+# escape for regex
+    local escaped_key=$(echo $key | sed "s/\./\\\./g")
+
+        [ -f $file ] && \
+        grep -E ^$escaped_key[[:space:]=]+ $file | \
+        sed -E -e "s/$escaped_key([\ \t]*=[\ \t]*|[\ \t]+)([A-Za-z0-9\.-]*).*/\2/g"
+}

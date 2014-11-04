@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "Mitro Server"
+exit 0

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir>
+
+# fail fast
+set -e
+
+echo "-----> Installing Mitro Server"
+
+# parse args
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
+
+if [ -e $ENV_DIR/DEBUG_BUILDPACK ]
+then
+    DEBUGBP=true
+fi
+
+
+# <BUILD_DIR> is (during this stage) a temporary directory. 
+# During execution of your slug it'll be known as '/app'.
+
+. $(dirname $0)/common
+. $(dirname $0)/java
+
+BIN_DIR=$(cd $(dirname $0); pwd) # absolute path
+
+if [ ! -e $ENV_DIR/DATABASE_URL ]
+then
+  echo "No DATABASE_URL found. Make sure you have added the postgres addon."
+  exit 1;
+fi
+
+# install JDK
+javaVersion=1.7
+echo -n "-----> Installing OpenJDK ${javaVersion}..."
+install_java ${BUILD_DIR} ${javaVersion}
+jdk_overlay ${BUILD_DIR}
+
+PROFILE_PATH="$BUILD_DIR/.profile.d/java.sh"
+mkdir -p $(dirname $PROFILE_PATH)
+echo 'export PATH="/app/.jdk/bin:$PATH"' >> $PROFILE_PATH
+echo 'export JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS -Djava.rmi.server.useCodebaseOnly=true"' >> $PROFILE_PATH
+
+PATH="$(dirname $0):$PATH"
+
+#create the cache dir if it doesn't exist
+mkdir -p $VENDORING_DIR
+
+# change to vendoring dir to install apache ant
+cd $VENDORING_DIR
+
+if [ -x $ANT_HOME/bin/ant ] ; then
+#assuming Apache Ant is already installed...
+    echo "-----> Using Apache Ant $ANT_VER....."
+else
+    echo "-----> Installing Apache Ant $ANT_VER..... [start]"
+    curl --max-time 180 --location $ANT_URL | tar xz
+    chmod +x $ANT_HOME/bin/ant
+    echo "-----> Installing Apache Ant $ANT_VER..... [done ]!"
+fi
+
+
+# change to mitro-core dir to run ant
+cd ${BUILD_DIR}/mitro-core
+
+export ANT_OPTS="-Xmx512m"
+
+# build app
+BUILDCMD="$ANT_HOME/bin/ant -Duser.home=${BUILD_DIR} jar"
+
+echo "-----> Building mitro-core....."
+echo "-----> executing $BUILDCMD"
+
+$BUILDCMD 2>&1 | indent
+
+if [ "${PIPESTATUS[*]}" != "0 0" ]; then
+    echo " !     Failed to build app with Apache Ant: ${PIPESTATUS[*]}"
+    exit 1
+fi
+
+if [ -n "$DEBUGBP" ]
+then
+    ls -al ${PWD}  | indent
+    ls -al build  | indent
+    ls -al ${BUILD_DIR}  | indent
+fi
+
+cd $BUILD_DIR
+
+# Convert Heroku DATABASE_URL to jbdc format
+DATABASE_URL=$(cat $ENV_DIR/DATABASE_URL)
+DB_REGX="postgres://(.+):(.+)@(.+):([0-9]+)/(.+)" 
+
+[[ $DATABASE_URL =~ $DB_REGX ]] 
+
+DB_USER=${BASH_REMATCH[1]}
+DB_PASS=${BASH_REMATCH[2]}
+DB_HOST=${BASH_REMATCH[3]}
+DB_PORT=${BASH_REMATCH[4]}
+DB_DATABASE=${BASH_REMATCH[5]}
+
+DB_URL="jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}?user=${DB_USER}&password=${DB_PASS}"
+
+echo "-----> Generating Keys"
+if [ ! -e $ENV_DIR/RANDOM_KEY ]
+then
+  echo "No RANDOM_KEY found. Set a the RANDOM_KEY variable."
+  exit 1;
+fi
+RANDOM_KEY=$(cat $ENV_DIR/RANDOM_KEY)
+
+mkdir -p mitrocore_secrets/sign_keyczar
+java -cp mitro-core/build/mitrocore.jar org.keyczar.KeyczarTool create --location=mitrocore_secrets/sign_keyczar --purpose=sign
+echo "{\"hmacKeyString\":\"$(echo $RANDOM_KEY | openssl dgst -sha1)\",\"size\":256}" > mitrocore_secrets/sign_keyczar/1
+
+echo "-----> Writing Procfile"
+# Write Procfile to root
+#echo "web: java -ea -DgenerateSecretsForTest=true -Dhttp_port=\$PORT -Ddatabase_url='$DB_URL' -jar mitro-core/build/mitrocore.jar" > Procfile
+echo "web: java -ea -Dhttp_port=\$PORT -Ddatabase_url='$DB_URL' -jar mitro-core/build/mitrocore.jar" > Procfile
+
+if [ -n "$DEBUGBP" ]
+then
+    cat ./Procfile
+fi

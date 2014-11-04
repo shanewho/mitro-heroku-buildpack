@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#cat &lt;&lt;EOF
+#---
+#config_vars:
+#PATH: $PATH:/app/vendor/mupdf/bin
+#EOF
