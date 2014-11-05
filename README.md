@@ -9,7 +9,7 @@ A heroku buildpack for the Mitro password manager.
 
 > This button currently uses a my experimental fork, not the official Mitro repo, it needs an app.json for it to work with the Heroku button.
 
-## Do it manually
+## Or do it manually
 
 ```
 git clone https://github.com/mitro-co/mitro.git
