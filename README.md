@@ -20,7 +20,7 @@ heroku config:set BUILDPACK_URL=https://github.com/shanewho/mitro-heroku-buildpa
 ```
 
 ## Configuring the client
-Once your server is sucessfully installed, you will have an app similar to `https://mighty-mountain-8942.herokuapp.com/`. If you visit that url you should get a 404 page with a message at the bottom that says 'Powered by Jetty://'. That means it is working correctly (ignore the 404).
+Once your server is sucessfully installed, you will have an app similar to `https://mighty-mountain-8942.herokuapp.com/` (if you used the Heroku button, click 'View it' at the bottom of the status). If you visit that url you should get a 404 page with a message at the bottom that says 'Powered by Jetty://'. That means it is working correctly (ignore the 404).
 
 To set the custom server url, you need to visit the preferences page. This url may contain random text, so the easiest way to find it is to click the _Sign Up_ button (in the extension), then change the url from `signup.html` to `preferences.html`. 
 
